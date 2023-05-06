@@ -1,0 +1,357 @@
+.data
+buffer_palabra:			.space 100			# Dirección de las palabras que escribirá el usuario se escoge 100 porque se espera un máximo de 25 palabras (25 * 4)
+				.align 2
+buffer_palabra_buscar:		.space 3				# Dirección luego de la pregunta al usuario de buscar otra palabra
+				.align 2
+direccion_archivo:		.space 1024			# Dirección de la url del archivo ingresada por el usuario
+				.align 2
+direccion_archivo_modifcado:	.space 1024			# Direccion de archivo sin saltos de linea
+				.align 2
+mensaje1:			.asciiz "\n Ingrese la direccion del archivo de la sopa de letras: \n"
+				.align 2
+mensaje2:			.asciiz "\n Ingrese la palabra que desea buscar: \n"
+				.align 2
+mensaje3:			.asciiz "\n ¿Quiere buscar otra palabra? \ny. Para buscar otra palabra \nn. Para salir\n"
+				.align 2
+mensaje4:			.asciiz "Terminando ejecución...\n"
+				.align 2
+mensaje5:			.asciiz "\nElija entre las opciones ('y' ó 'n')\n"				
+				.align 2
+mensaje6:			.asciiz "\nPalabra no encontrada\n"
+				.align 2
+mensaje7:			.asciiz "\nLa palabra se encontró, inicia en: "
+				.align 2
+fila:				.asciiz "\n fila: \n"
+				.align 2
+columna:				.asciiz "\n columna: \n"
+				.align 2													
+spaces:				.asciiz ""			# Se usa para almacenar los caracteres leidos del archivo		
+opcion1:				.asciiz "y"
+				.align 2
+opcion2:				.asciiz "n"
+				.align 2
+###############################################################################################################################################################################################
+.text
+main:
+	jal menu
+	j exit
+menu:		
+	addi $sp, $sp, -4						# Ajustamos la pila a 4 bytes hacia abajo
+	sw $ra, 0($sp)						# Copia de la dirección de la función
+
+		
+solicitar_url:							# Se llevan los registros temporales $t1 - $t6 a 0					
+	add $t1, $zero, $zero 					
+	add $t2, $zero, $zero 						
+	add $t3, $zero, $zero 						
+	add $t4, $zero, $zero 						
+	add $t5, $zero, $zero 						
+	add $t6, $zero, $zero
+ 	
+	li $v0, 4						# LLamado al sistema para imprimir String en consola
+	la $a0, mensaje1
+	syscall 
+
+	li $v0, 8						# Llamado al sistema para leer String, se lee la url ingresada
+	la $a0, direccion_archivo
+	la $a1, 1024						# Espacio máximo que se ingresa para la url
+	syscall
+	
+	la $t1, direccion_archivo					# Se le lleva al registro $t1 la url del archivo
+	la $t2, direccion_archivo_modifcado				# Se carga la direccion en $t2 donde se alojara el archivo modificado
+	add $t3, $t1, $zero					# Copia del valor del registro $t1
+	add $t4, $t2, $zero					# Copia del valor del registro $t2
+	addi $t5, $t5, 10						# el valor 10 indica el salto de linea en ASCII, lo que nos indica cuando se llega al final de la cadena
+
+modificarArchivo:							# Se remueve la ruta del archivo con un salto de linea
+	lbu $t6,0($t3)						# $t6 almacena el valor leido en $t3 que es la copia de la direccion url
+	beq $t6, $t5, validarRuta					# Se compara ( caracter == salto de linea ) se finaliza la lectura validando un archivo correcto
+	sb $t6, 0($t4)						# Se guarda en memoria el caracter leído diferente de salto de linea, en la direccion de memoria de: direccion_archivo_modifcado
+	addi $t3, $t3, 1						# incrementamos en 1 el valor de $t3 que apunta a la dirección de memoria del byte siguiente de la cadena de la ruta de archivo
+	addi $t4, $t4, 1						# Se incrementa en 1 el valor de $t4 que apunta a la direccion de memoria donde se gurada la cadena de la modificación
+	j modificarArchivo					# Se vuelve al ciclo hasta que se elimina de la cadena el caracter salto de linea
+	
+validarRuta: 	 
+	add $t3, $zero, $zero					# Se reinicia el registro $t3 que contenia la ruta ingresada
+	add $t4, $zero, $zero					# Se reinicia el registro $t4 que contenía la dirección del archivo modificado (sin saltos de linea)
+	add $s4, $t2, $zero					# Se guarda en $s4 la direccion de la sopa de letras
+	add $t2, $zero, $zero					# Se reinicia el registro $t2
+	
+	li $v0, 13						# Syscall 13 open file
+	la $a0, direccion_archivo_modifcado				# Se carga en $a0 la direccion del archivo modifcado
+	li $a1, 0						# Modo lectura flag
+	syscall
+	
+	add $s0, $v0, $zero					# Se guarda el descriptor en el registro $s0
+	slt $t1, $v0, $zero					# Se compara if($v0 < 0){ $t1 = 1 } else ( $t1 = 0 )
+	bne $t1, $zero, solicitar_url				# Si no se encuentra el archivo, vuelve a solicitar_url
+
+	# El archivo existe:	
+
+	li $v0, 14						# Syscall para leer datos de archivo
+	add $a0, $s0, $zero
+	la $a1, spaces						# Direccion del buffer de entrada
+	li $a2, 5052						# Cantidad máxima de caracteres que serán volcados a la memoria 					
+	syscall
+	
+	add $s5, $v0, $zero					# Se guarda en el registro $s5 la cantidad de caracteres
+	add $a0, $s0, $zero					# 
+	li $v0, 16						# Se cierra el archivo
+	syscall
+	
+	add $s2, $a1, $zero					# Se utiliza el valor de la direccion de memoria de spaces en el registro $s2 para almacenar las palabras
+	add $t0, $s2, $zero					# Se copia el contenido para recorrer las palabras
+	
+	addi $t5, $zero, 13					# Decimal 13 en ASCII es retorno de carro, nos sirve para saber cuando se llega al final de la fila
+
+PedirPalabra:
+	add $t1, $zero, $zero					# Se reinicia el valor del registro $t1 a cero
+	
+	li $v0, 4						# Syscall para imprimir cadenas que terminan en null
+	la $a0, mensaje2						# Se llama el mensaje para pedir ingresar las palabras
+	syscall
+	
+	li $v0, 8						# Syscall para leer un String
+	la $a0, buffer_palabra					# Apunta a la direccion en memoria de buffer_palabra, las palabras ingresadas
+	li $a1, 100						# se guarda en el registro $a1 el maximo de caracteres a leer
+	syscall
+	
+	la $t1, buffer_palabra					# Se guarda la dirección de memoria en el registro $t1
+	add $s3, $t1, $zero					# Se hace una copia de la dirección de memoria de la palabra que se buscará
+	
+	lbu $t4, 0($t1)						# Se carga el primer caracter de la buffer_palabra
+	addi $s0, $zero, 1					# Contador de filas iniciado en 1 en el registro $s0
+	addi $s1, $zero, 1					# Contador de columnas iniciado en 1 en el registro $s0
+	
+recorridoFila:
+	lbu $t3, 0($t0)						# Se almacena el primer caracter leido en $t0 que es el el valor de la direccion de memoria de spaces en el registro
+	beq $t3, 13, cambiarFila					# Si el caracter leído ==  retorno de carro ( 13 en ASCII ) se salta a siguiente fila
+	beq $t3, 10, cambiarFila					# Si el caracter leído ==  salto linea ( 10 en ASCII ) se salta a siguiente fila
+	beq $t3, $zero, palabraNoEncontrada				# Si el caracter leído ==  null ( 0 en ASCII ) no se encontró la palabra 
+	beq $t3, $t4, calcularMovimiento				# Se verifica si se ha encontrado el comienzo de la palabra buscada
+	addi $t0, $t0, 1						# Se aumenta el valor de $t3 para apuntar al siguiente caracter
+	lbu $t3, 0($t0)						
+	beq $t3, 32, recorridoFila					# Si el caracter leido == espacio ( 32 en ASCII ) se ha llegado al final de la palabra buscada 
+	addi $s1, $s1, 1						# Se aumenta el valor de $s1 en 1, lleva el registro de la columna actual
+	j recorridoFila            
+	                                                                                                                                             
+cambiarFila:
+	addi $t0, $t0, 2						# Se incrementa el valor de $t0 en 2 ya que esta dirección se encuentra despues del retorno de carro y el salto de linea
+	addi $s0, $s0, 1						# Se incrementa en 1 el valor del registro $s0 que contiene la fila actual
+	addi $s1, $zero, 1					# Se incrementa en 1 el valor del registro $s1 que contiene la columna
+	j recorridoFila
+
+cambiarColumna:
+	addi $t0, $t0, 1						# Se apunta al siguiente caracter en la fila actual
+	j recorridoFila
+
+calcularMovimiento:
+	addi $t6, $zero, 201					# Se calucla el valor del desplazamiento vertical con el valor 201 para forzar el salto 
+	addi $t7, $zero, 2					# Se calucla el valor del desplazamiento horizontal con el valor 2 para forzar el salto 
+	
+	add $t2, $zero, $t0					# Se guardar dirección de descubrimiento
+
+movimiento:
+	jal movimientoDerecha                           	                                                
+	bne $s6, $zero, finalizar
+	jal movimientoIzquierda
+	bne $s6, $zero, finalizar
+	jal movimientoArriba
+	bne $s6, $zero, finalizar
+	jal movimientoAbajo
+	bne $s6, $zero, finalizar
+
+	beq $s6, $zero, cambiarColumna 	
+	
+	
+	j PedirPalabra
+	                               
+finalizar:
+
+	j buscarMasPalabras
+
+movimientoDerecha:
+	addi $sp, $sp, -4						# Se reservan 2 palabras en la pila ( 8 bytes )
+	sw $ra, 0($sp)						# Se guarda el valor del registro $ra en la pila
+	
+	add $t0, $t0, $t7						# Se aumenta el indice que tiene un valor de 2 en $t7, el registro $t0 contiene el índice actual de la sopa de letras
+	lbu $t8, 0($t0)						# Se carga un byte de la direccion de memoria de $t0 y se guarda en el registro $t8, lee el siguiente carácter de la sopa de letras.
+	addi $t1, $t1, 1						# Se aumenta en 1 el indice actual de la palabra a buscar, y se almacena en $t1
+	lbu $t9, 0($t1)						# Se carga un byte a partir de la direccion del registro $t1, lee el siguiente caracter de la palabra a buscar
+	
+	jal finalPalabra						
+	lw $ra, 0($sp)						# Se restaura el valor del registro $ra desde la pila
+	addi $sp, $sp, 4						# Libera el espacio de la pila
+		
+	bne $s6, $zero, infoPalabra				# Se compora el valor del registro $s6 con 0, $s6 = 1 se ha encontrado toda la palabra, $s6 = 0 no se encontro la palabra
+	beq $t8, $t9, movimientoDerecha				# Si se ha encontrado una coincidencia entre el caracter buscado y el archivo 
+	
+	add $a0, $t2, $zero					# contiene el indice de la posicion actual en la sopa de letras
+	j reiniciarIndice
+
+reiniciarIndice:
+	add $t0, $a0, $zero
+	add $t1, $s3, $zero
+	
+	jr $ra	
+
+movimientoIzquierda:
+	addi $sp, $sp, -4						# Se reserva 2 palabras en la pila ( 8 bytes ) 
+	sw $ra, 0($sp)						# Se guarda el regstro $ra en la pila
+	
+	sub $t0, $t0, $t7						# Se hace resta entre los registros $t0 y $t7, para indicar el movimiento hacia la izquierda
+	lbu $t8, 0($t0)						# Se carga el byte que aoutnta a $t0, corresponde a la letra de la sopa a la que se avanza 
+	addi $t1, $t1, 1						# Indica el indice de la letra actual en la palabra que se está buscando
+	lbu $t9, 0($t1)						# Corresponde a la letra de la palabra que se está buscando
+	
+	jal finalPalabra
+	lw $ra, 0($sp)						# Se recupera el resgistro $rade la pila
+	addi $sp, $sp, 4						# Se libera el espacio reservado en la pila
+	
+	bne $s6, $zero, infoPalabra				# Si se ha encontrado toda la palabra en la sopa de letras se produce el salto a infoPalabra
+	beq $t8, $t9, movimientoIzquierda				# Se produce el salto si las letras buscada y la de la sopa de letras son iguales, si no se continua la busqueda hacia la izquierda
+	
+	add $a0, $t2, $zero					# Se carga el valor de la direccion de memoria de la direccion del cracter descubierto como argumento
+	j reiniciarIndice
+	
+movimientoArriba:                              	                               	                               	                               	                               	                               	                               	                               	                               
+
+	addi $sp, $sp, -4						# Se reserva 8 bytes en la pila 
+	sw $ra, 0($sp)						# se almacena la direccion de retorno actual en el registro $ra
+	
+	sub $t0, $t0, $t6						# Almacena la longitud de una fila de la sopa de letras, avanza hacia arriba en la sopa de letras
+	lbu $t8, 0($t0)						# corresponde a la letra de la sopa de letras en la nueva posición
+	add $t1, $t1, 1						# Corresponde al puntero de la posición actual de la palabra a buscar. Avanza en la dirección vertical hacia arriba.
+	lbu $t9, 0($t1)						# Corresponde a la letra de la palabra a buscar en la nueva posición
+	
+	jal finalPalabra
+	lw $ra, 0($sp)						# Carga el valor guardado desde la pila en el registro $ra
+	addi $sp, $sp, 4						# Libera las palabras reservadas en la pilalibera las palabras reservadas en la pila
+	
+	bne $s6, $zero, infoPalabra				# Verifica si la palabra completa ha sido encontrada por la izquierda, derecha, arriba o abajo. Si es así, la función salta a la etiqueta "infoPalabra".
+	beq $t8, $t9, movimientoArriba				# Determinar si las letras de la sopa de letras y la palabra a buscar coinciden
+	
+	add $a0, $t2, $zero					# Es un puntero a la posición inicial de la sopa de letras
+	j reiniciarIndice
+
+movimientoAbajo:
+	
+	addi $sp, $sp, -4						# Se reservan 8 bits en la pila
+	sw $ra, 0($sp)						# se almacena la direccion de retorno actual en el registro $ra
+	
+	add $t0, $t0, $t6
+	lbu $t8, 0($t0)
+	add $t1, $t1, 1
+	lbu $t9, 0($t1)
+	
+	jal finalPalabra
+	lw $ra, 0($sp)
+	addi $sp, $sp, 4						# Libera las palabras reservadas en la pilalibera las palabras reservadas en la pila
+	
+	add $a0, $t2, $zero
+	j reiniciarIndice
+
+finalPalabra:
+
+	bne $t9, 10 noAcabaPalabra					# Si $t9 != de 10 ( decimal 10 en ASCII es salto de linea ) no se ha llegado al final de la palabra buscada
+	addi $s6, $zero, 1					# Flag, 1 = palabra encontrada, 0 = palabra no encontrada
+	jr $ra							# Retornar
+
+infoPalabra:
+
+	li $v0, 4						# Syscall
+	la $a0, mensaje7
+	syscall
+	
+	 la $v0, 4
+	 la $a0, fila
+	 syscall
+	 
+	li $v0, 1
+ 	la $a0, ($s0)
+ 	syscall
+ 	
+ 	li $v0, 4
+ 	la $a0, columna
+ 	syscall
+ 	
+ 	li $v0, 1
+ 	la $a0, ($s1)
+ 	syscall
+
+ 	add $a0, $s2, $zero
+ 	j reiniciarIndice
+ 	
+noAcabaPalabra:
+
+ 	addi $s6, $zero, 0
+ 	jr $ra 
+
+palabraNoEncontrada:
+	li $v0, 4
+	la $a0, mensaje6
+	syscall
+
+buscarMasPalabras:
+	addi $sp, $sp, -20					# Se reserva en la pila
+	sw $s3, 0($sp)
+	sw $s3, 4($sp)
+	sw $s3, 8($sp)
+	sw $s3, 12($sp)
+	sw $s3, 16($sp)
+	
+	li $v0, 4						# Syscall
+	la $a0, mensaje3
+	syscall
+	
+	li $v0, 8						# Syscall para leer String
+	la $a0, buffer_palabra_buscar
+	li $a1, 3
+	syscall
+	
+	la $t1, buffer_palabra_buscar
+	add $s3, $t1, $zero
+	lb $t6, 0($t1)
+	
+	lb $t2, opcion1
+	lb $t3, opcion2
+	
+	beq $t6, $t2, continuarBusqueda
+	bne $t6, $t3, opcionInvalida
+	
+	li $v0, 4
+	la $a0, mensaje5
+	syscall
+	
+	j exit
+	
+opcionInvalida:
+	li $v0, 4
+	la $a0, mensaje5
+	syscall
+	
+	lw $s3, 0($sp)
+	lw $t1, 4($sp)
+	lw $t2, 8($sp)
+	lw $t3, 12($sp)
+	lw $t6, 16($sp)
+	addi $sp, $sp, 20
+	
+	j buscarMasPalabras
+																							
+continuarBusqueda:
+	lw $s3, 0($sp)	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                
+	lw $t1, 4($sp)
+	lw $t2, 8($sp)
+	lw $t3, 12($sp)
+	lw $t6, 16($sp)	
+	addi $sp, $sp, 20
+	add $t0, $s2, $zero
+	j PedirPalabra
+	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                	                                                	                                                	                                                	                                                                             	                                                	                                                	                                                
+###############################################################################################################################################################################################
+exit:
+	li $v0, 10
+	syscall
+
+###############################################################################################################################################################################################
